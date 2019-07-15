@@ -421,7 +421,7 @@ class PredNet(Recurrent):
                 if self.output_mode == 'error':
                     output = all_error
                 elif self.output_mode == 'representation_and_error':
-                    rep = K.concatenate([K.batch_flatten(e[l]) for l in range(self.nb_layers)], axis=-1)
+                    rep = K.concatenate([K.batch_flatten(r[l]) for l in range(self.nb_layers)], axis=-1)
                     output = K.concatenate((K.batch_flatten(rep), all_error), axis=-1)
                 else: # output_mode == 'all'
                     output = K.concatenate((K.batch_flatten(frame_prediction), all_error), axis=-1)
