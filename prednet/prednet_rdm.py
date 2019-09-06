@@ -1,7 +1,8 @@
 from keras.models import Model
 from keras.layers import Flatten, Dense, TimeDistributed, LSTM
-from keras.layers import Input, Masking, Lambda, Dropout
+from keras.layers import Input, Masking, Lambda, Dropout, Reshape
 from keras.layers import Bidirectional, concatenate, average
+from keras import backend as K
 import prednet_model
 import numpy as np
 
@@ -39,8 +40,101 @@ def lstm_layer(tensor, mask_value, hidden_dims, dropout, name, bidirectional=Fal
     return x
 
 
-def create_model(input_shape, hidden_dims, drop_rate=0.5, mask_value=None, train=False, freeze_prednet=True,
-                 output_mode='representation_and_error', prediction_error_weight=0.9, rdm_error_weight=0.1, **config):
+def dissimilarity(x):
+    a, b = x
+
+    a_mean = K.mean(a)
+    b_mean = K.mean(b)
+    a_norm = a - a_mean
+    b_norm = b - b_mean
+    numerator = K.dot(a_norm, K.transpose(b_norm))
+
+    a_var = K.sum(K.square(a_norm))
+    b_var = K.sum(K.square(b_norm))
+    denominator = (a_var * b_var) ** 0.5
+
+    return 1. - (numerator / denominator)
+
+
+def create_model(input_shape, train=False, freeze_prednet=True, output_mode='representation_and_error',
+                 prediction_error_weight=0.9, rdm_error_weight=0.1, **config):
+    if config is None:
+        config = {}
+
+    config['input_width'] = input_shape[1]
+    config['input_height'] = input_shape[2]
+    config['input_channels'] = input_shape[3]
+
+    prednet = prednet_model.create_model(train=train, output_mode=output_mode, **config)
+    prednet_layer = prednet.layers[1]
+    prednet_layer.trainable = not freeze_prednet
+
+    image_a = Input(shape=input_shape, name='image_a')
+    image_b = Input(shape=input_shape, name='image_b')
+
+    # Shared PredNet model
+    if output_mode == 'representation_and_error':
+        prednet_out_a = prednet(image_a)
+        prednet_out_b = prednet(image_b)
+        error_a = crop(2, start=-prednet_layer.nb_layers, name='crop_error_a')(prednet_out_a)
+        error_a = prednet_model.get_error_layer(error_a, config['n_timesteps'], prednet_layer.nb_layers)
+        rep_a = crop(2, start=0, end=-prednet_layer.nb_layers, name='crop_rep_a')(prednet_out_a)
+        error_b = crop(2, start=-prednet_layer.nb_layers, name='crop_error_b')(prednet_out_b)
+        error_b = prednet_model.get_error_layer(error_b, config['n_timesteps'], prednet_layer.nb_layers)
+        rep_b = crop(2, start=0, end=-prednet_layer.nb_layers, name='crop_rep_b')(prednet_out_b)
+        prednet_error = average([error_a, error_b], name='prednet_error')
+    else:
+        rep_a = prednet(image_a)
+        rep_b = prednet(image_b)
+
+    last_layer_shape = prednet_layer._PredNet__compute_layer_shape(input_shape, layer_num=prednet_layer.nb_layers - 1)
+    last_layer_dim = int(np.prod(last_layer_shape))
+
+    # Get last timestep
+    rep_a = crop(1, start=-1)(rep_a)
+    rep_b = crop(1, start=-1)(rep_b)
+
+    # Get last layer representation
+    out_a = crop(2, start=-last_layer_dim, name='crop_last_rep_a')(rep_a)
+    out_b = crop(2, start=-last_layer_dim, name='crop_last_rep_b')(rep_b)
+
+    out_a = Flatten()(out_a)
+    out_b = Flatten()(out_b)
+
+    diss_layer = Lambda(function=dissimilarity, name='dissimilarity')
+    rdm_output = diss_layer([out_a, out_b])
+    rdm_output = Reshape((1,), name='rdm_prediction')(rdm_output)
+
+    if output_mode == 'representation_and_error':
+        model = Model([image_a, image_b], [prednet_error, rdm_output])
+
+        if train:
+            # define two dictionaries: one that specifies the loss method for
+            # each output of the network along with a second dictionary that
+            # specifies the weight per loss
+            losses = {
+                "prednet_error": "mean_absolute_error",
+                "rdm_prediction": "mean_absolute_error",
+            }
+            loss_weights = {"prednet_error": prediction_error_weight,
+                            "rdm_prediction": rdm_error_weight}
+
+            print('Compiling model with loss weights:\n', loss_weights)
+            # initialize the optimizer and compile the model
+            model.compile(optimizer='adam', loss=losses, loss_weights=loss_weights,
+                          metrics=['mean_absolute_error', 'mean_squared_error'])
+    else:
+        model = Model([image_a, image_b], rdm_output)
+
+        if train:
+            model.compile(loss='mean_absolute_error', optimizer='adam',
+                          metrics=['mean_absolute_error', 'mean_squared_error'])
+    model.summary()
+    return model
+
+
+def create_model_lstm(input_shape, hidden_dims, drop_rate=0.5, mask_value=None, train=False, freeze_prednet=True,
+                      output_mode='representation_and_error', prediction_error_weight=0.9, rdm_error_weight=0.1, **config):
     if config is None:
         config = {}
 
