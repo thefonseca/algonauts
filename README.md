@@ -6,9 +6,9 @@ Lotter, Kreiman, and Cox (2016) to investigate if predictive coding
 representations are useful to predict brain activity in the visual cortex. 
 We use representational similarity analysis (RSA) to compare PredNet 
 representations to functional magnetic resonance imaging (fMRI) and 
-magnetoencephalography (MEG) data from the Algonauts Project (Cichy etal., 2019).  
+magnetoencephalography (MEG) data from the Algonauts Project (Cichy et al., 2019).  
 
-In contrast to previous findings in the literature (Khaligh-Razavi &Kriegeskorte, 2014), 
+In contrast to previous findings in the literature (Khaligh-Razavi & Kriegeskorte, 2014), 
 we report empirical data suggesting that unsupervised models trained to predict frames 
 of videos may outperform supervised image classification baselines. 
 
@@ -19,6 +19,6 @@ feature extraction, and evaluation. We also use the [Algonauts development kit](
 which is not distributed here. Experiment workflow is as follows:
  
 * [PredNet training](./prednet_train.ipynb) on videos
-* [PredNet fine-tuning](./prednet_finetune.ipynb) using RDM supervision
 * [Feature extraction](./prednet_features.ipynb)
+* [Feature extraction for CORnet](./cornet_features.ipynb) (Kubilius et al. 2018)
 * [Evaluation](./prednet_evaluation.ipynb) using representational dissimilarity analysis (RSA) 
